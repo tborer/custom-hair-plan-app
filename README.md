@@ -123,7 +123,7 @@ them, skipping the integrations that are not configured.
 | `STRIPE_TEST_PAYMENT_LINK` / `STRIPE_PAYMENT_LINK` | Payment Link used as a checkout fallback |
 | `STRIPE_CONFIRM_ENABLED` | `true` to enable server-side payment confirmation |
 | `NEXT_PUBLIC_STRIPE_CONFIRM_ENABLED` | `true` to let the success page call confirm |
-| `enable_stripe` | `false` to disable checkout/payment links while still setting up (default: enabled) |
+| `ENABLE_STRIPE` | `false` to disable checkout/payment links while still setting up (default: enabled) |
 
 Confirmation runs only when the server flag, the client flag, and a secret key
 for the active mode are all present.
@@ -140,7 +140,7 @@ for the active mode are all present.
 
 | Variable | Purpose |
 | --- | --- |
-| `enable_waitlist` | `false` to hide the "Join Waitlist" button/modal (default: enabled) |
+| `ENABLE_WAITLIST` | `false` to hide the "Join Waitlist" button/modal (default: enabled) |
 
 ### Database
 

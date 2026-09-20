@@ -11,12 +11,12 @@ function isEnabled(raw: string | undefined, defaultValue: boolean): boolean {
   return defaultValue;
 }
 
-// "enable_waitlist" - toggles the "Join Waitlist" button/modal.
+// "ENABLE_WAITLIST" - toggles the "Join Waitlist" button/modal.
 export function isWaitlistEnabled(): boolean {
-  return isEnabled(process.env.enable_waitlist ?? process.env.ENABLE_WAITLIST, true);
+  return isEnabled(process.env.ENABLE_WAITLIST, true);
 }
 
-// "enable_stripe" - toggles Stripe checkout/payment links while still setting up.
+// "ENABLE_STRIPE" - toggles Stripe checkout/payment links while still setting up.
 export function isStripeEnabled(): boolean {
-  return isEnabled(process.env.enable_stripe ?? process.env.ENABLE_STRIPE, true);
+  return isEnabled(process.env.ENABLE_STRIPE, true);
 }
