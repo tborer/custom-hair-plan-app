@@ -20,9 +20,6 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
   const serverHasStripeKey =
     stripeMode === "live" ? !!process.env.STRIPE_SECRET_KEY : !!process.env.STRIPE_TEST_SECRET_KEY;
 
-  const serverConfirmEnabled = (process.env.STRIPE_CONFIRM_ENABLED || "false").toLowerCase() === "true";
-  const clientConfirmEnabled =
-    (process.env.NEXT_PUBLIC_STRIPE_CONFIRM_ENABLED || "false").toLowerCase() === "true";
   const env = process.env.NEXT_PUBLIC_CO_DEV_ENV || process.env.NODE_ENV || "unknown";
 
   console.log(
@@ -30,8 +27,6 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
     JSON.stringify({
       stripeMode,
       serverHasStripeKey,
-      serverConfirmEnabled,
-      clientConfirmEnabled,
       env,
       ip: Boolean(ip),
       ua: Boolean(ua),
@@ -42,8 +37,6 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
     ok: true,
     stripeMode,
     serverHasStripeKey,
-    serverConfirmEnabled,
-    clientConfirmEnabled,
     env,
   });
 }

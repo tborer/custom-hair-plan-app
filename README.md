@@ -121,11 +121,27 @@ them, skipping the integrations that are not configured.
 | `STRIPE_TEST_SECRET_KEY` / `STRIPE_SECRET_KEY` | Secret key for test / live mode |
 | `STRIPE_TEST_PRICE_ID` / `STRIPE_PRICE_ID` | Price ID for the full plan |
 | `STRIPE_TEST_PAYMENT_LINK` / `STRIPE_PAYMENT_LINK` | Payment Link used as a checkout fallback |
-| `STRIPE_CONFIRM_ENABLED` | `true` to enable server-side payment confirmation |
-| `NEXT_PUBLIC_STRIPE_CONFIRM_ENABLED` | `true` to let the success page call confirm |
+| `STRIPE_TEST_WEBHOOK_SECRET` / `STRIPE_WEBHOOK_SECRET` | Signing secret for the `/api/stripe/webhook` endpoint (test / live) |
 
-Confirmation runs only when the server flag, the client flag, and a secret key
-for the active mode are all present.
+### Stripe webhook setup
+
+`/api/stripe/webhook` is the authoritative fulfillment path: it verifies the
+event signature and, on `checkout.session.completed` with `payment_status:
+"paid"`, saves the lead, logs the plan, and emails it. This runs
+server-to-server regardless of whether the customer's browser stays open, and
+is idempotent against Stripe's retry delivery.
+
+The `/plan/success` page separately calls `/api/stripe/session-status` (a
+read-only check, no side effects) purely to decide whether to render the plan
+content in the browser — it does not perform fulfillment.
+
+To register the webhook:
+- **Local dev**: `stripe listen --forward-to localhost:3000/api/stripe/webhook`
+  and copy the printed signing secret into `STRIPE_TEST_WEBHOOK_SECRET`.
+- **Deployed**: add an endpoint for `https://<your-domain>/api/stripe/webhook`
+  in the Stripe Dashboard (for the test or live mode in use), subscribed to
+  `checkout.session.completed`, and put its signing secret into
+  `STRIPE_TEST_WEBHOOK_SECRET` / `STRIPE_WEBHOOK_SECRET`.
 
 ### Email
 

@@ -40,6 +40,11 @@ async function ensureSchema() {
 
     await sql`CREATE INDEX IF NOT EXISTS plan_logs_session_idx ON plan_logs (session_id);`;
 
+    await sql`CREATE TABLE IF NOT EXISTS stripe_events (
+      event_id TEXT PRIMARY KEY,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );`;
+
     schemaEnsured = true;
   } catch (err) {
     // If DB is not configured yet, fail gracefully. We'll no-op in save functions.
@@ -119,5 +124,41 @@ export async function savePlanLog(params: {
   } catch (err) {
     console.warn("[db] savePlanLog fallback (no DB)", err);
     return { sessionId: sid, saved: false };
+  }
+}
+
+/**
+ * Records a Stripe webhook event as processed, for idempotency against
+ * Stripe's at-least-once retry delivery. Returns true the first time an
+ * event id is seen, false on any subsequent (duplicate) delivery.
+ * If Postgres isn't configured, every event is treated as new (graceful
+ * fallback, same as the rest of this module).
+ */
+export async function markEventProcessed(eventId: string): Promise<boolean> {
+  try {
+    await ensureSchema();
+    const result = await sql`
+      INSERT INTO stripe_events (event_id)
+      VALUES (${eventId})
+      ON CONFLICT (event_id) DO NOTHING
+    `;
+    return (result.rowCount ?? 0) > 0;
+  } catch (err) {
+    console.warn("[db] markEventProcessed fallback (no DB)", err);
+    return true;
+  }
+}
+
+/**
+ * Releases a previously claimed event id so a Stripe retry can attempt
+ * fulfillment again. Call this if processing fails after markEventProcessed
+ * claimed the event, so the failure isn't mistaken for "already handled".
+ */
+export async function unmarkEventProcessed(eventId: string): Promise<void> {
+  try {
+    await ensureSchema();
+    await sql`DELETE FROM stripe_events WHERE event_id = ${eventId}`;
+  } catch (err) {
+    console.warn("[db] unmarkEventProcessed failed (no DB)", err);
   }
 }
