@@ -15,7 +15,6 @@ export default function PlanSuccess() {
   const [email, setEmail] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
   const [stripeSessionId, setStripeSessionId] = useState<string | null>(null);
-  const [planLogged, setPlanLogged] = useState(false);
 
   const [cid] = useState(() => Math.random().toString(36).slice(2) + Date.now().toString(36));
   const postLog = async (
@@ -34,13 +33,10 @@ export default function PlanSuccess() {
     }
   };
 
-  const confirmEnabled = (process.env.NEXT_PUBLIC_STRIPE_CONFIRM_ENABLED || "false").toLowerCase() === "true";
   const [verifyState, setVerifyState] = useState<"idle" | "verifying" | "verified" | "failed">("idle");
   const debugBanner = ["true", "1", "yes", "on"].includes(String(process.env.NEXT_PUBLIC_DEBUG_BANNER ?? "").trim().toLowerCase());
   const [lastConfirm, setLastConfirm] = useState<{ status?: number; ok?: boolean; message?: string | null } | null>(null);
-  const [cfg, setCfg] = useState<{ serverConfirmEnabled: boolean; clientConfirmEnabled: boolean; serverHasStripeKey: boolean; stripeMode: string } | null>(null);
-  const [configLoaded, setConfigLoaded] = useState<boolean>(false);
-  const [runtimeConfirmEnabled, setRuntimeConfirmEnabled] = useState<boolean>(false);
+  const [cfg, setCfg] = useState<{ serverHasStripeKey: boolean; stripeMode: string } | null>(null);
   const [configError, setConfigError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -76,7 +72,7 @@ export default function PlanSuccess() {
     })();
   }, []);
 
-  // Fetch runtime config to avoid build-time NEXT_PUBLIC caching issues
+  // Fetch runtime config for the debug banner only (stripe mode / key presence).
   useEffect(() => {
     (async () => {
       try {
@@ -84,54 +80,49 @@ export default function PlanSuccess() {
         const resp = await fetch("/api/config");
         const data = await resp.json().catch(() => null);
         if (data?.ok) {
-          const nextCfg = {
-            serverConfirmEnabled: !!data.serverConfirmEnabled,
-            clientConfirmEnabled: !!data.clientConfirmEnabled,
+          setCfg({
             serverHasStripeKey: !!data.serverHasStripeKey,
             stripeMode: data.stripeMode || "test",
-          };
-          setCfg(nextCfg);
-          const computed = !!nextCfg.serverConfirmEnabled && !!nextCfg.clientConfirmEnabled && !!nextCfg.serverHasStripeKey;
-          setRuntimeConfirmEnabled(computed);
-          await postLog("config_loaded", { ...nextCfg, runtimeConfirmEnabled: computed });
+          });
         } else {
           setConfigError(data?.message || "invalid");
-          await postLog("config_load_error", { message: data?.message || "invalid" }, "warn");
         }
       } catch (e: any) {
         setConfigError(e?.message || String(e));
-        await postLog("config_load_error", { message: e?.message || String(e) }, "error");
-      } finally {
-        setConfigLoaded(true);
       }
     })();
   }, []);
 
+  // Gate the plan content on a server-verified payment status. Fulfillment
+  // (saving the lead, logging the plan, emailing it) is handled entirely by
+  // the Stripe webhook - this is a read-only check purely for the UI.
   useEffect(() => {
-    if (!configLoaded) return;
-    if (!runtimeConfirmEnabled) return;
-    if (!stripeSessionId) return;
+    if (!ready) return;
+    if (!stripeSessionId) {
+      setVerifyState("failed");
+      return;
+    }
     (async () => {
       try {
         setVerifyState("verifying");
-        await postLog("confirm_start", { stripeSessionId });
-        const resp = await fetch(`/api/stripe/confirm?session_id=${encodeURIComponent(stripeSessionId)}`, { method: "GET" });
+        await postLog("verify_start", { stripeSessionId });
+        const resp = await fetch(`/api/stripe/session-status?session_id=${encodeURIComponent(stripeSessionId)}`, { method: "GET" });
         const data = await resp.json().catch(() => null);
         setLastConfirm({ status: resp.status, ok: !!data?.ok, message: data?.message || null });
-        if (data?.ok) {
+        if (data?.ok && data?.paid) {
           setVerifyState("verified");
-          await postLog("confirm_success", { emailed: !!data?.emailed });
+          await postLog("verify_success", {});
         } else {
           setVerifyState("failed");
-          await postLog("confirm_error", { message: data?.message || "unknown" }, "error");
+          await postLog("verify_error", { message: data?.message || "not_paid" }, "error");
         }
       } catch (e: any) {
         setVerifyState("failed");
         setLastConfirm({ status: undefined, ok: false, message: e?.message || String(e) });
-        await postLog("confirm_error", { message: e?.message || String(e) }, "error");
+        await postLog("verify_error", { message: e?.message || String(e) }, "error");
       }
     })();
-  }, [configLoaded, runtimeConfirmEnabled, stripeSessionId]);
+  }, [ready, stripeSessionId]);
 
   useEffect(() => {
     if (!ready) return;
@@ -143,47 +134,6 @@ export default function PlanSuccess() {
       });
     })();
   }, [ready, insight, answers, email]);
-
-  // Ensure the unlocked full plan is logged with email + details (for regenerate/resend later)
-  useEffect(() => {
-    if (!ready) return;
-    if (planLogged) return;
-    if (!email || !insight) return;
-
-    // If server-side confirm ran and succeeded, assume it logged already
-    if (lastConfirm?.ok) {
-      setPlanLogged(true);
-      return;
-    }
-
-    (async () => {
-      try {
-        await postLog("plan_log_attempt", { hasEmail: !!email, hasInsight: !!insight });
-        const resp = await fetch("/api/plan/log", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...(stripeSessionId ? { "x-session-id": stripeSessionId } : {}),
-          } as any,
-          body: JSON.stringify({
-            email,
-            sessionId: stripeSessionId || undefined,
-            insight,
-            source: "success_page",
-          }),
-        });
-        const data = await resp.json().catch(() => null);
-        if (resp.ok && data?.ok) {
-          setPlanLogged(true);
-          await postLog("plan_log_success", { ok: true });
-        } else {
-          await postLog("plan_log_error", { message: data?.message || "Failed" }, "error");
-        }
-      } catch (e: any) {
-        await postLog("plan_log_error", { message: e?.message || String(e) }, "error");
-      }
-    })();
-  }, [ready, email, insight, planLogged, lastConfirm, stripeSessionId]);
 
   const title = "Plan unlocked | Your comprehensive hair plan";
   const description = "Payment successful. Your complete, personalized hair plan is ready.";
@@ -213,17 +163,15 @@ export default function PlanSuccess() {
                   {`Signed in as ${email}.`}
                 </p>
               )}
-              {runtimeConfirmEnabled && (
-                <p className="text-xs text-muted-foreground">
-                  {verifyState === "verifying"
-                    ? "Verifying payment…"
-                    : verifyState === "verified"
-                    ? "Payment verified."
-                    : verifyState === "failed"
-                    ? "We couldn’t verify your payment. Please try again or contact support."
-                    : null}
-                </p>
-              )}
+              <p className="text-xs text-muted-foreground">
+                {verifyState === "verifying"
+                  ? "Verifying payment…"
+                  : verifyState === "verified"
+                  ? "Payment verified."
+                  : verifyState === "failed"
+                  ? "We couldn’t verify your payment. Please try again or contact support."
+                  : null}
+              </p>
               <div className="flex flex-wrap gap-3">
                 <Link href="/">
                   <Button className="px-6">Return home</Button>
@@ -232,6 +180,36 @@ export default function PlanSuccess() {
             </CardContent>
           </Card>
 
+          {verifyState === "verifying" && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-primary">Preparing your plan…</CardTitle>
+                <CardDescription>Verifying your payment before unlocking your full plan.</CardDescription>
+              </CardHeader>
+            </Card>
+          )}
+
+          {verifyState === "failed" && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-primary">We couldn’t verify your payment</CardTitle>
+                <CardDescription>
+                  This link is missing a valid payment confirmation, so we can’t show your full plan here.
+                  If you just paid, check the email we sent you — otherwise, try the checkout link again or reach out for help.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="flex flex-wrap gap-3">
+                  <Link href="/">
+                    <Button className="px-6">Return home</Button>
+                  </Link>
+                  <HelpLink page="Plan Success (unverified)" sessionId={stripeSessionId ?? undefined} email={email ?? undefined} />
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {verifyState === "verified" && (
           <Card>
             <CardHeader>
               <CardTitle className="text-primary">Your Full Plan</CardTitle>
@@ -308,19 +286,20 @@ export default function PlanSuccess() {
               </div>
             </CardContent>
           </Card>
+          )}
         {debugBanner && (
           <div className="fixed bottom-2 left-2 z-[60] rounded-md border bg-background/95 backdrop-blur px-3 py-2 text-xs text-muted-foreground">
-            <div>Debug: buildConfirm={String(confirmEnabled)} runtimeConfirm={String(runtimeConfirmEnabled)} configLoaded={String(configLoaded)} sessionId={String(!!stripeSessionId)} verify={verifyState}</div>
+            <div>Debug: sessionId={String(!!stripeSessionId)} verify={verifyState}</div>
             {lastConfirm ? (
-              <div>confirm status={String(lastConfirm.status)} ok={String(!!lastConfirm.ok)} msg={lastConfirm.message || ""}</div>
+              <div>status={String(lastConfirm.status)} ok={String(!!lastConfirm.ok)} msg={lastConfirm.message || ""}</div>
             ) : (
-              <div>confirm: not called</div>
+              <div>status: not called</div>
             )}
             <div>env={process.env.NEXT_PUBLIC_CO_DEV_ENV || "unknown"}</div>
             <div>storage: hasAnswers={String(!!answers)} hasInsight={String(!!insight)} hasEmail={String(!!email)}</div>
             {configError && (<div className="text-destructive">config error: {configError}</div>)}
             {cfg && (
-              <div>config: mode={cfg.stripeMode} serverConfirm={String(cfg.serverConfirmEnabled)} clientConfirm={String(cfg.clientConfirmEnabled)} serverHasKey={String(cfg.serverHasStripeKey)}</div>
+              <div>config: mode={cfg.stripeMode} serverHasKey={String(cfg.serverHasStripeKey)}</div>
             )}
           </div>
         )}
