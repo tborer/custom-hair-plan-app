@@ -1,0 +1,7 @@
+User-agent: *
+Allow: /
+Disallow: /plan/success
+Disallow: /plan/cancel
+Disallow: /api/
+
+Sitemap: https://custom-hair-plan-app.vercel.app/sitemap.xml
