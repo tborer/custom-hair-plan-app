@@ -1,9 +1,14 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { getStripe, getSiteUrl, getPriceId } from "@/lib/stripe";
+import { isStripeEnabled } from "@/lib/flags";
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "POST") {
     return res.status(405).json({ ok: false, message: "Method not allowed" });
+  }
+
+  if (!isStripeEnabled()) {
+    return res.status(200).json({ ok: false, message: "Payments are not available yet" });
   }
 
   const stripe = getStripe();

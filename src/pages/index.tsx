@@ -3,6 +3,7 @@ import Head from "next/head";
 import Image from "next/image";
 import Header from "@/components/Header";
 import HelpLink from "@/components/HelpLink";
+import WaitlistModal from "@/components/WaitlistModal";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
@@ -190,7 +191,28 @@ export default function Home() {
   }, [answers]);
   const [submittingLead, setSubmittingLead] = useState(false);
   const [unlocking, setUnlocking] = useState(false);
+  const [stripeEnabled, setStripeEnabled] = useState(true);
+  const [waitlistEnabled, setWaitlistEnabled] = useState(false);
   const { toast } = useToast();
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const resp = await fetch("/api/config");
+        const data = await resp.json().catch(() => null);
+        if (!cancelled && data?.ok) {
+          setStripeEnabled(!!data.stripeEnabled);
+          setWaitlistEnabled(!!data.waitlistEnabled);
+        }
+      } catch {
+        // keep default (stripe enabled, waitlist hidden) if config can't be loaded
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const [cid] = useState(() => Math.random().toString(36).slice(2) + Date.now().toString(36));
   const postLog = async (event: string, context?: any, level: "info" | "warn" | "error" | "debug" = "info") => {
@@ -329,6 +351,10 @@ export default function Home() {
   };
 
   const handleUnlockFullPlan = async () => {
+    if (!stripeEnabled) {
+      toast({ title: "Checkout coming soon", description: "Payments aren't available yet — join the waitlist to get notified!" });
+      return;
+    }
     setUnlocking(true);
     await postLog("unlock_click", { hasSessionId: !!sessionId });
     
@@ -471,9 +497,11 @@ export default function Home() {
                   <span className="inline-flex items-center rounded-full bg-primary/10 text-primary px-3 py-1 text-xs border border-primary/20">
                     Trusted by 2,000+ users
                   </span>
-                  <span className="inline-flex items-center rounded-full bg-green-500/10 text-green-600 px-3 py-1 text-xs border border-green-500/20">
-                    Powered by Stripe ✓ Secure checkout
-                  </span>
+                  {stripeEnabled && (
+                    <span className="inline-flex items-center rounded-full bg-green-500/10 text-green-600 px-3 py-1 text-xs border border-green-500/20">
+                      Powered by Stripe ✓ Secure checkout
+                    </span>
+                  )}
                 </div>
                 
                 <p className="inline-flex items-center rounded-full bg-accent/60 text-accent-foreground px-3 py-1 text-xs sm:text-sm">
@@ -1004,32 +1032,47 @@ export default function Home() {
                         </CardDescription>
                       </CardHeader>
                       <CardContent>
-                        <div className="grid gap-4">
-                          <ul className="text-sm text-muted-foreground space-y-2">
-                            <li>• Immediate access after secure Stripe checkout</li>
-                            <li>• We'll email your complete plan and a link to view it anytime</li>
-                          </ul>
+                        {stripeEnabled ? (
+                          <div className="grid gap-4">
+                            <ul className="text-sm text-muted-foreground space-y-2">
+                              <li>• Immediate access after secure Stripe checkout</li>
+                              <li>• We'll email your complete plan and a link to view it anytime</li>
+                            </ul>
 
-                          <div className="flex flex-wrap items-baseline gap-2">
-                            <span className="inline-flex items-center rounded bg-accent/40 text-accent-foreground px-2 py-0.5 text-[10px] border">
-                              Limited time
-                            </span>
-                            <span className="text-muted-foreground line-through">$79.99</span>
-                            <span className="text-2xl font-semibold text-primary">$19.99</span>
-                          </div>
+                            <div className="flex flex-wrap items-baseline gap-2">
+                              <span className="inline-flex items-center rounded bg-accent/40 text-accent-foreground px-2 py-0.5 text-[10px] border">
+                                Limited time
+                              </span>
+                              <span className="text-muted-foreground line-through">$79.99</span>
+                              <span className="text-2xl font-semibold text-primary">$19.99</span>
+                            </div>
 
-                          <div className="flex items-center gap-3">
-                            <Button onClick={handleUnlockFullPlan} disabled={unlocking} className="px-6">
-                              {unlocking ? "Redirecting..." : "Unlock Full Plan"}
-                            </Button>
-                            <Button variant="secondary" onClick={() => setShowInsight(false)}>
-                              Maybe later
-                            </Button>
+                            <div className="flex items-center gap-3">
+                              <Button onClick={handleUnlockFullPlan} disabled={unlocking} className="px-6">
+                                {unlocking ? "Redirecting..." : "Unlock Full Plan"}
+                              </Button>
+                              <Button variant="secondary" onClick={() => setShowInsight(false)}>
+                                Maybe later
+                              </Button>
+                            </div>
+                            <p className="text-xs text-muted-foreground">
+                              You'll be redirected to a secure Stripe checkout. On completion we'll email your full plan.
+                            </p>
                           </div>
-                          <p className="text-xs text-muted-foreground">
-                            You'll be redirected to a secure Stripe checkout. On completion we'll email your full plan.
-                          </p>
-                        </div>
+                        ) : (
+                          <div className="grid gap-4">
+                            <p className="text-sm text-muted-foreground">
+                              Checkout is being finalized and isn't available just yet.
+                              {waitlistEnabled ? " Join the waitlist and we'll email you as soon as it's ready." : " Please check back soon."}
+                            </p>
+                            <div className="flex items-center gap-3">
+                              {waitlistEnabled && <WaitlistModal />}
+                              <Button variant="secondary" onClick={() => setShowInsight(false)}>
+                                Maybe later
+                              </Button>
+                            </div>
+                          </div>
+                        )}
                       </CardContent>
                     </Card>
                   </div>
@@ -1063,7 +1106,7 @@ export default function Home() {
                       <p><span className="font-medium text-foreground">Your choices:</span> you can request access or deletion of your data. You can unsubscribe from emails at any time via the link provided.</p>
                       <p><span className="font-medium text-foreground">Security:</span> we use reasonable technical and organizational measures to protect your data. No method of transmission or storage is 100% secure.</p>
                       <p><span className="font-medium text-foreground">Children:</span> the service isn't intended for individuals under 18.</p>
-                      <p><span className="font-medium text-foreground">Contact:</span> use the Help link in the footer or email ar@agilerant.info.</p>
+                      <p><span className="font-medium text-foreground">Contact:</span> use the Contact link in the footer or email ar@agilerant.info.</p>
                       <p className="text-xs">Effective: {new Date().toISOString().slice(0, 10)}</p>
                     </div>
                   </DialogContent>
@@ -1090,7 +1133,7 @@ export default function Home() {
                       <p><span className="font-medium text-foreground">Limitation of liability:</span> To the fullest extent permitted by law, Agile Rant and its affiliates are not liable for indirect, incidental, or consequential damages.</p>
                       <p><span className="font-medium text-foreground">Governing law:</span> These Terms are governed by the laws of the jurisdiction where Agile Rant operates, without regard to conflict of law principles.</p>
                       <p><span className="font-medium text-foreground">Changes:</span> We may update these Terms. Material changes will be indicated by updating the Effective date.</p>
-                      <p><span className="font-medium text-foreground">Contact:</span> use the Help link in the footer or email ar@agilerant.info.</p>
+                      <p><span className="font-medium text-foreground">Contact:</span> use the Contact link in the footer or email ar@agilerant.info.</p>
                       <p className="text-xs">Effective: {new Date().toISOString().slice(0, 10)}</p>
                     </div>
                   </DialogContent>
@@ -1100,6 +1143,9 @@ export default function Home() {
                   page="Home"
                   sessionId={sessionId ?? undefined}
                   email={(leadEmail || (answers as any)?.email) || undefined}
+                  endpoint="/api/contact"
+                  label="Contact"
+                  title="Contact us"
                 />
               </div>
             </div>

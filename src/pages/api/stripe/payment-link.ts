@@ -1,4 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from "next";
+import { isStripeEnabled } from "@/lib/flags";
 
 /**
  * Returns a Stripe Payment Link URL based on STRIPE_MODE.
@@ -9,6 +10,10 @@ import type { NextApiRequest, NextApiResponse } from "next";
 export default function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "GET") {
     return res.status(405).json({ ok: false, message: "Method not allowed" });
+  }
+
+  if (!isStripeEnabled()) {
+    return res.status(200).json({ ok: false, message: "Payments are not available yet" });
   }
 
   const ip =
