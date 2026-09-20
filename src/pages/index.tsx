@@ -423,7 +423,7 @@ export default function Home() {
         {/* Fixed canonical URL pointing to production domain */}
         <link rel="canonical" href={`${PRODUCTION_DOMAIN}/`} />
         
-        <!-- GA4 Tracking Script -->
+        {/* GA4 Tracking Script */}
         <script
           async
           src={`https://www.googletagmanager.com/gtag/js?id=${process.env.NEXT_PUBLIC_GA_MEASUREMENT_ID || 'G-XXXXXXXXXX'}`}
