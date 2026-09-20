@@ -123,6 +123,7 @@ them, skipping the integrations that are not configured.
 | `STRIPE_TEST_PAYMENT_LINK` / `STRIPE_PAYMENT_LINK` | Payment Link used as a checkout fallback |
 | `STRIPE_CONFIRM_ENABLED` | `true` to enable server-side payment confirmation |
 | `NEXT_PUBLIC_STRIPE_CONFIRM_ENABLED` | `true` to let the success page call confirm |
+| `enable_stripe` | `false` to disable checkout/payment links while still setting up (default: enabled) |
 
 Confirmation runs only when the server flag, the client flag, and a secret key
 for the active mode are all present.
@@ -133,7 +134,13 @@ for the active mode are all present.
 | --- | --- |
 | `RESEND_API_KEY` | Enables sending through Resend |
 | `RESEND_FROM` | From address for Resend |
-| `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` | SMTP delivery via Nodemailer |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` | SMTP delivery via Nodemailer, used for the contact form and waitlist signups too |
+
+### Waitlist
+
+| Variable | Purpose |
+| --- | --- |
+| `enable_waitlist` | `false` to hide the "Join Waitlist" button/modal (default: enabled) |
 
 ### Database
 
@@ -163,15 +170,19 @@ request.
 | `/api/config` | GET | Runtime feature flags and Stripe mode |
 | `/api/log` | POST | Structured, PII-masked event logging |
 | `/api/help` | POST | Email a support request |
+| `/api/contact` | POST | Email a footer "Contact" form submission |
+| `/api/waitlist` | POST | Email a waitlist signup |
 
 ## Project structure
 
 ```
 src/
-  components/      Header, Logo, HelpLink, and the shadcn/ui library under ui/
+  components/      Header, Logo, HelpLink, WaitlistModal, and the shadcn/ui
+                   library under ui/
   hooks/           Custom React hooks
-  lib/             db.ts (Postgres), email.ts (Resend/SMTP), stripe.ts,
-                   plan.ts (plan HTML builder), utils.ts
+  lib/             db.ts (Postgres), email.ts (Resend/SMTP), flags.ts
+                   (feature flags), stripe.ts, plan.ts (plan HTML builder),
+                   utils.ts
   pages/           index.tsx (landing + assessment), plan/success, plan/cancel,
                    error.tsx, and api/ routes
   styles/          globals.css

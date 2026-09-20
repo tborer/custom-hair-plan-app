@@ -1,4 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from "next";
+import { isStripeEnabled, isWaitlistEnabled } from "@/lib/flags";
 
 /**
  * Runtime configuration for client consumption.
@@ -24,6 +25,8 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
   const clientConfirmEnabled =
     (process.env.NEXT_PUBLIC_STRIPE_CONFIRM_ENABLED || "false").toLowerCase() === "true";
   const env = process.env.NEXT_PUBLIC_CO_DEV_ENV || process.env.NODE_ENV || "unknown";
+  const stripeEnabled = isStripeEnabled();
+  const waitlistEnabled = isWaitlistEnabled();
 
   console.log(
     "[config] return",
@@ -32,6 +35,8 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
       serverHasStripeKey,
       serverConfirmEnabled,
       clientConfirmEnabled,
+      stripeEnabled,
+      waitlistEnabled,
       env,
       ip: Boolean(ip),
       ua: Boolean(ua),
@@ -44,6 +49,8 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
     serverHasStripeKey,
     serverConfirmEnabled,
     clientConfirmEnabled,
+    stripeEnabled,
+    waitlistEnabled,
     env,
   });
 }
