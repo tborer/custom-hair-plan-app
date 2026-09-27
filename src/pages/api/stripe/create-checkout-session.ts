@@ -1,11 +1,15 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import { getStripe, getSiteUrl, getPriceId } from "@/lib/stripe";
+import { getStripe, getSiteUrl, getPriceId, getStripeMode } from "@/lib/stripe";
 import { isStripeEnabled } from "@/lib/flags";
+import { enforceIpRateLimit } from "@/lib/http";
+import { isValidEmail } from "@/lib/html";
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "POST") {
     return res.status(405).json({ ok: false, message: "Method not allowed" });
   }
+
+  if (!(await enforceIpRateLimit(req, res, "checkout_create", { limit: 20, windowSec: 3600 }))) return;
 
   if (!isStripeEnabled()) {
     return res.status(200).json({ ok: false, message: "Payments are not available yet" });
@@ -23,12 +27,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   try {
     const siteUrl = getSiteUrl(req);
-    const appSessionId = (req.headers["x-session-id"] as string) || "";
-    const { insight, email } = (req.body || {}) as { insight?: string; email?: string };
-    const emailToUse =
-      typeof email === "string" && /^\S+@\S+\.\S+$/.test(email.trim()) ? email.trim() : undefined;
+    const rawSessionId = String(req.headers["x-session-id"] || "");
+    const appSessionId = /^[A-Za-z0-9_-]{8,100}$/.test(rawSessionId) ? rawSessionId : "";
+    const { email } = (req.body || {}) as { email?: string };
+    const emailToUse = isValidEmail(email) ? email.trim() : undefined;
 
-    const mode = (process.env.STRIPE_MODE || "test").toLowerCase() === "live" ? "live" : "test";
+    const mode = getStripeMode();
     console.log("[stripe] checkout_session_create start", JSON.stringify({
       mode,
       hasStripe: !!stripe,
@@ -50,10 +54,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       cancel_url: `${siteUrl}/plan/cancel`,
       customer_email: emailToUse,
       allow_promotion_codes: true,
-      // Let Stripe collect the email during checkout
+      client_reference_id: appSessionId || undefined,
+      // Only an opaque session id goes to Stripe - answers/insights (health data) stay in our DB.
       metadata: {
         app_session_id: appSessionId,
-        insight: (insight || "").slice(0, 300),
         source: "checkout",
       },
     });
@@ -70,8 +74,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       type: err?.type,
       code: err?.code,
     });
-    return res
-      .status(500)
-      .json({ ok: false, message: err?.message || "Failed to create checkout session" });
+    return res.status(500).json({ ok: false, message: "Failed to create checkout session" });
   }
 }

@@ -26,9 +26,12 @@ credentials configured.
   prioritizes the highest-impact lever — high stress, low iron on a plant-forward
   diet, low omega-3s, low hydration, or low protein — with a solid-foundation
   fallback.
-- **Full plan** organized into Key Insight, Nutrition Foundation, Growth Support
-  Stack, Stress & Sleep, Topicals & Scalp Care, and a day-by-day Weekly Rhythm,
-  rendered both on the success page and as HTML in the plan email.
+- **Personalized full plan** built by the rules engine in `src/lib/plan.ts` from
+  every answer: nutrition gaps, a supplement stack that skips what the user
+  already takes, stress/sleep/movement, scalp care and topicals matched to scalp
+  type, styling and sex, a daily rhythm built from the chosen stack, expected
+  timeline, and clinician red flags. The same structured plan renders on the
+  success page and (escaped) in the plan email.
 - **Medical disclaimer** shown with the plan and included in the emailed version.
 
 ### Payments
@@ -36,30 +39,45 @@ credentials configured.
   promotion codes enabled, prefilled customer email, and the app session ID and
   insight carried in session metadata.
 - **Payment Link fallback** — if Checkout session creation fails, the client
-  falls back to a configured Stripe Payment Link with the email prefilled.
+  falls back to a configured Stripe Payment Link with the email and
+  `client_reference_id` (app session) prefilled.
 - **Test/live mode switching** via `STRIPE_MODE`, which selects the matching
   secret key, price ID, and payment link so test and production credentials never
   mix.
-- **Post-payment confirmation** (`/api/stripe/confirm`, feature-flagged) that
-  retrieves the Checkout session, verifies `payment_status === "paid"`, then
-  saves the lead, logs the plan, and emails the full plan.
-- **Success and cancel pages** at `/plan/success` and `/plan/cancel`, with the
-  success page reading the stored answers and insight to render the plan
-  immediately.
+- **Server-verified access** — the success page shows nothing until
+  `/api/stripe/confirm` has retrieved the Checkout Session from Stripe and
+  confirmed it is complete and paid; only then does the server return the plan.
+- **Webhook fulfillment** (`/api/stripe/webhook`) on `checkout.session.completed`
+  and `checkout.session.async_payment_succeeded`, so the plan is emailed even if
+  the buyer closes the tab before returning to the site.
+- **Exactly-once plan email** — the webhook and the success page share one
+  fulfillment path; an atomic claim on the `purchases` table (or a PaymentIntent
+  metadata flag without a DB) ensures the plan is emailed once per purchase.
+  Reloading the success page never re-sends it.
+- **Revisitable plan** — the plan email links to
+  `/plan/success?session_id=…`, which re-verifies payment and rebuilds the plan
+  from the answers stored server-side.
 
 ### Email
 - **Dual-provider delivery** — Resend or SMTP (Nodemailer), selected by whichever
   is configured, with a no-op fallback when neither is.
-- **Plan preview email** sent on lead capture and **full plan email** sent after
-  a confirmed payment.
+- **Plan preview email** sent on lead capture (with a signed one-click
+  unsubscribe link and `List-Unsubscribe` headers, honoring a suppression list)
+  and **full plan email** sent after a confirmed payment.
 - **In-app help dialog** available on every page; messages (capped at 500
   characters) are emailed to support with page, referrer, IP, user agent,
   session ID, and environment context attached.
 
 ### Data & instrumentation
-- **Vercel Postgres persistence** for `leads`, `answers`, and `plan_logs`, with
-  the schema created on demand at first write and a unique constraint that
-  upserts leads per session and email.
+- **Vercel Postgres persistence** for `leads`, `answers`, `plan_logs`,
+  `purchases`, `email_suppressions`, and `rate_limits`, with the schema created
+  on demand at first write and a unique constraint that upserts leads per
+  session and email.
+- **Abuse protection** — per-IP rate limits on every form/email endpoint (shared
+  across instances via Postgres), a per-recipient cap on preview emails,
+  whitelist validation of answers against the question definitions, and HTML
+  escaping of all user input in emails. The insight is recomputed server-side,
+  never accepted from the client.
 - **Session correlation** — a server-issued session ID flows through the quiz,
   lead capture, checkout metadata, and logs via the `x-session-id` header.
 - **Structured event logging** (`/api/log`) across the whole funnel — assessment
@@ -71,9 +89,10 @@ credentials configured.
   and Stripe mode at request time instead of from build-time-baked
   `NEXT_PUBLIC_*` values.
 - **Google Analytics 4** page views, including SPA route changes, when
-  `NEXT_PUBLIC_GA_MEASUREMENT_ID` is set.
-- **Debug banner** on the success page, toggled by `NEXT_PUBLIC_DEBUG_BANNER`,
-  showing stored state and confirmation status.
+  `NEXT_PUBLIC_GA_MEASUREMENT_ID` is set — loaded only after the visitor accepts
+  the cookie banner (changeable via "Cookie settings" in the footer).
+- **Privacy-minded payments** — only an opaque session ID is sent to Stripe;
+  assessment answers and insights stay in your database.
 
 ### UI & SEO
 - **shadcn/ui component library** (48 components in `src/components/ui`, most
@@ -121,12 +140,19 @@ them, skipping the integrations that are not configured.
 | `STRIPE_TEST_SECRET_KEY` / `STRIPE_SECRET_KEY` | Secret key for test / live mode |
 | `STRIPE_TEST_PRICE_ID` / `STRIPE_PRICE_ID` | Price ID for the full plan |
 | `STRIPE_TEST_PAYMENT_LINK` / `STRIPE_PAYMENT_LINK` | Payment Link used as a checkout fallback |
-| `STRIPE_CONFIRM_ENABLED` | `true` to enable server-side payment confirmation |
-| `NEXT_PUBLIC_STRIPE_CONFIRM_ENABLED` | `true` to let the success page call confirm |
+| `STRIPE_TEST_WEBHOOK_SECRET` / `STRIPE_WEBHOOK_SECRET` | Signing secret (`whsec_…`) for the webhook endpoint in test / live mode |
 | `ENABLE_STRIPE` | `false` to disable checkout/payment links while still setting up (default: enabled) |
 
-Confirmation runs only when the server flag, the client flag, and a secret key
-for the active mode are all present.
+**Webhook setup:** in the Stripe Dashboard (Developers → Webhooks) add an
+endpoint at `https://<your-domain>/api/stripe/webhook` listening for
+`checkout.session.completed` and `checkout.session.async_payment_succeeded`, and
+copy its signing secret into the matching env var. Locally:
+`stripe listen --forward-to localhost:3000/api/stripe/webhook`.
+
+**Payment Link setup:** if you use the Payment Link fallback, set its
+confirmation behavior to redirect to
+`https://<your-domain>/plan/success?session_id={CHECKOUT_SESSION_ID}` so buyers
+land on the verified plan page.
 
 ### Email
 
@@ -135,6 +161,12 @@ for the active mode are all present.
 | `RESEND_API_KEY` | Enables sending through Resend |
 | `RESEND_FROM` | From address for Resend |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` | SMTP delivery via Nodemailer, used for the contact form and waitlist signups too |
+| `UNSUBSCRIBE_SECRET` | Random string used to sign unsubscribe links (**required in production**; without it emails fall back to a mailto unsubscribe) |
+| `NEXT_PUBLIC_SUPPORT_EMAIL` | Optional. Support address shown to users and used as Reply-To. Defaults to the address in `SMTP_FROM`, then `SMTP_USER` |
+| `SUPPORT_EMAIL` | Optional. Inbox for help, contact, and waitlist notifications if different from the above |
+
+If neither `RESEND_FROM` nor `SMTP_FROM` is set, mail is sent from
+`noreply@<NEXT_PUBLIC_SITE_URL host>` — verify that domain with your provider.
 
 ### Waitlist
 
@@ -144,17 +176,21 @@ for the active mode are all present.
 
 ### Database
 
-`@vercel/postgres` reads the standard `POSTGRES_*` connection variables. Without
+Vercel no longer offers its own Postgres; add **Neon** from the Vercel Marketplace
+(Storage → Create Database → Neon, free plan available on Hobby) and connect it
+to this project. The app reads `POSTGRES_URL`, or `DATABASE_URL` if that is what
+the integration sets. Without
 them, writes log a warning and return `saved: false` rather than failing the
-request.
+request. **A database is required in production**: it stores the answers the
+webhook uses to build the emailed plan, guarantees the plan email is sent once,
+backs cross-instance rate limits, and records unsubscribes.
 
 ### Site & analytics
 
 | Variable | Purpose |
 | --- | --- |
-| `NEXT_PUBLIC_SITE_URL` | Base URL used for Stripe redirects and email links |
-| `NEXT_PUBLIC_GA_MEASUREMENT_ID` | GA4 measurement ID |
-| `NEXT_PUBLIC_DEBUG_BANNER` | `true` to show the debug banner on the success page |
+| `NEXT_PUBLIC_SITE_URL` | Canonical base URL (no trailing slash) used for canonicals, the sitemap/robots, Stripe redirects, and email links |
+| `NEXT_PUBLIC_GA_MEASUREMENT_ID` | GA4 measurement ID (loaded only after cookie consent) |
 | `NEXT_PUBLIC_CO_DEV_ENV` | Environment label used in logs and the webpack config |
 
 ## API routes
@@ -163,10 +199,11 @@ request.
 | --- | --- | --- |
 | `/api/answers/save` | POST | Persist assessment answers, return a session ID |
 | `/api/lead` | POST | Save a lead with consent and email the plan preview |
-| `/api/plan/log` | POST | Store the generated plan HTML for later resend |
 | `/api/stripe/create-checkout-session` | POST | Create a Stripe Checkout session |
 | `/api/stripe/payment-link` | GET | Return the configured Payment Link URL |
-| `/api/stripe/confirm` | GET/POST | Verify payment, save the lead, email the full plan |
+| `/api/stripe/confirm` | POST | Verify a paid Checkout Session and return the plan (emails it if not yet sent) |
+| `/api/stripe/webhook` | POST | Stripe webhook: fulfill paid Checkout Sessions |
+| `/api/unsubscribe` | GET/POST | Signed unsubscribe link / RFC 8058 one-click unsubscribe |
 | `/api/config` | GET | Runtime feature flags and Stripe mode |
 | `/api/log` | POST | Structured, PII-masked event logging |
 | `/api/help` | POST | Email a support request |
@@ -177,14 +214,17 @@ request.
 
 ```
 src/
-  components/      Header, Logo, HelpLink, WaitlistModal, and the shadcn/ui
-                   library under ui/
+  components/      Header, Logo, HelpLink, WaitlistModal, SiteFooter (legal
+                   dialogs), CookieConsent, and the shadcn/ui library under ui/
   hooks/           Custom React hooks
-  lib/             db.ts (Postgres), email.ts (Resend/SMTP), flags.ts
-                   (feature flags), stripe.ts, plan.ts (plan HTML builder),
-                   utils.ts
+  lib/             plan.ts (questions, insight + plan engine), fulfillment.ts
+                   (payment verification + one-time plan email), db.ts
+                   (Postgres), email.ts (Resend/SMTP), stripe.ts, rateLimit.ts,
+                   notify.ts (support emails), unsubscribe.ts, consent.ts,
+                   site.ts (site URL, support email, policy date), flags.ts
   pages/           index.tsx (landing + assessment), plan/success, plan/cancel,
-                   error.tsx, and api/ routes
+                   error.tsx, sitemap.xml and robots.txt (generated), and api/
+                   routes
   styles/          globals.css
   util/            String helpers
 ```
@@ -192,9 +232,18 @@ src/
 ## Deployment
 
 Deploys to Vercel as-is; `vercel.json` sets the install command to
-`pnpm install --no-frozen-lockfile`. Set `NEXT_PUBLIC_SITE_URL` to the deployed
-URL so Stripe redirects and email links resolve correctly, and configure the
-Stripe, email, and Postgres variables in the project's environment settings.
+`pnpm install --no-frozen-lockfile`. Before launch:
+
+1. Connect Vercel Postgres.
+2. Set `NEXT_PUBLIC_SITE_URL` and `UNSUBSCRIBE_SECRET` (the support address
+   defaults to your SMTP sender).
+3. Configure email (Resend or SMTP) with a verified sending domain.
+4. Configure Stripe keys, price ID, and the webhook endpoint + secret for the
+   active `STRIPE_MODE` (see above).
+5. Make a test-mode purchase end to end: plan shown after payment, plan email
+   received once, and `/plan/success` without a valid paid `session_id` shows no
+   plan.
+6. When the policies change, update `POLICY_EFFECTIVE_DATE` in `src/lib/site.ts`.
 
 ## Disclaimer
 

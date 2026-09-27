@@ -4,11 +4,27 @@ import { Toaster } from "@/components/ui/toaster"
 import { useEffect, useState } from 'react';
 import Script from 'next/script';
 import { useRouter } from 'next/router';
+import CookieConsent from "@/components/CookieConsent";
+import { CONSENT_EVENT, readConsent } from "@/lib/consent";
 
 export default function App({ Component, pageProps }: AppProps) {
   const [mounted, setMounted] = useState(false);
   const router = useRouter();
   const GA_ID = process.env.NEXT_PUBLIC_GA_MEASUREMENT_ID;
+  // Analytics load only after the visitor accepts analytics cookies.
+  const [analyticsAllowed, setAnalyticsAllowed] = useState(false);
+
+  useEffect(() => {
+    setAnalyticsAllowed(readConsent() === "granted");
+    const onChange = (e: Event) => {
+      const granted = (e as CustomEvent).detail === "granted";
+      setAnalyticsAllowed(granted);
+      // @ts-ignore - gtag injected by our inline script
+      window.gtag?.('consent', 'update', { analytics_storage: granted ? 'granted' : 'denied' });
+    };
+    window.addEventListener(CONSENT_EVENT, onChange);
+    return () => window.removeEventListener(CONSENT_EVENT, onChange);
+  }, []);
 
   useEffect(() => {
     // Get the color-scheme value from :root
@@ -25,7 +41,7 @@ export default function App({ Component, pageProps }: AppProps) {
 
   // Send GA4 page_view on route changes (SPA)
   useEffect(() => {
-    if (!GA_ID) return;
+    if (!GA_ID || !analyticsAllowed) return;
 
     const handleRouteChange = (url: string) => {
       // @ts-ignore - gtag injected by our inline script
@@ -38,7 +54,7 @@ export default function App({ Component, pageProps }: AppProps) {
     return () => {
       router.events.off('routeChangeComplete', handleRouteChange);
     };
-  }, [GA_ID, router.events]);
+  }, [GA_ID, analyticsAllowed, router.events]);
 
   // Prevent flash while theme loads
   if (!mounted) {
@@ -48,7 +64,7 @@ export default function App({ Component, pageProps }: AppProps) {
   return (
     <div className="min-h-screen">
       {/* Google tag (gtag.js) */}
-      {GA_ID && (
+      {GA_ID && analyticsAllowed && (
         <>
           <Script
             id="ga4-script"
@@ -76,6 +92,7 @@ export default function App({ Component, pageProps }: AppProps) {
 
       <Component {...pageProps} />
       <Toaster />
+      <CookieConsent />
     </div>
   )
 }

@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import Head from "next/head";
 import Image from "next/image";
 import Header from "@/components/Header";
-import HelpLink from "@/components/HelpLink";
+import SiteFooter from "@/components/SiteFooter";
 import WaitlistModal from "@/components/WaitlistModal";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
@@ -10,11 +10,11 @@ import { Progress } from "@/components/ui/progress";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger } from "@/components/ui/dialog";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/components/ui/use-toast";
 import { motion, AnimatePresence } from "framer-motion";
+import { QUESTIONS, generateInsight } from "@/lib/plan";
 
 export default function Home() {
   const startRef = useRef<HTMLDivElement | null>(null);
@@ -80,11 +80,6 @@ export default function Home() {
           priceCurrency: "USD",
           availability: "https://schema.org/InStock",
         },
-        aggregateRating: {
-          "@type": "AggregateRating",
-          ratingValue: "4.9",
-          ratingCount: "2000",
-        },
       },
       {
         "@context": "https://schema.org",
@@ -119,32 +114,8 @@ export default function Home() {
     ];
   }, []);
 
-  // Assessment: flattened questions and state
-  const questions = [
-    { id: "email", text: "What is your email?", type: "text" },
-    { id: "gender", text: "What is your gender?", type: "single", options: ["Male", "Female", "Prefer not to say", "Other"] },
-    { id: "age", text: "What is your age range?", type: "single", options: ["18–24", "25–34", "35–44", "45–54", "55+"] },
-    { id: "location", text: "Where do you live? (city, region, or climate)", type: "text" },
-    { id: "health_conditions", text: "Do you have any known health conditions that affect nutrient absorption?", type: "single", options: ["No", "Celiac disease", "Crohn's disease", "IBD/IBS", "Other / not sure"] },
-    { id: "primary_concern", text: "What is your primary hair concern?", type: "single", options: ["Hair thinning", "Slow growth", "Dullness", "Breakage", "Hair loss / shedding"] },
-    { id: "hair_type", text: "What is your hair type?", type: "single", options: ["Oily", "Dry", "Normal", "Combination"] },
-    { id: "scalp_condition", text: "How would you describe your scalp?", type: "single", options: ["Dry / itchy", "Oily", "Normal", "Flaky / sensitive"] },
-    { id: "hair_loss_history", text: "Have you noticed recent hair thinning or hair loss?", type: "single", options: ["No", "Yes — past month", "Yes — 3–6 months", "Yes — 6–12 months", "Yes — over a year"] },
-    { id: "diet", text: "What is your dietary preference?", type: "single", options: ["Omnivore", "Vegetarian", "Vegan", "Pescatarian"] },
-    { id: "protein_intake", text: "How often do you consume protein-rich foods?", type: "single", options: ["Daily", "3–4 times/week", "1–2 times/week", "Rarely"] },
-    { id: "iron_foods", text: "How often do you eat iron-rich foods?", type: "single", options: ["Daily", "3–4 times/week", "1–2 times/week", "Rarely"] },
-    { id: "biotin_foods", text: "How often do you consume foods rich in Biotin (B7)?", type: "single", options: ["Daily", "3–4 times/week", "1–2 times/week", "Rarely"] },
-    { id: "zinc_foods", text: "How often do you consume foods rich in Zinc?", type: "single", options: ["Daily", "3–4 times/week", "1–2 times/week", "Rarely"] },
-    { id: "vitc_foods", text: "How often do you consume foods rich in Vitamin C?", type: "single", options: ["Daily", "3–4 times/week", "1–2 times/week", "Rarely"] },
-    { id: "omega3_foods", text: "How often do you consume foods rich in Omega-3s?", type: "single", options: ["Daily", "3–4 times/week", "1–2 times/week", "Rarely"] },
-    { id: "water", text: "How many glasses of water do you drink per day?", type: "single", options: ["1–2", "3–5", "6–8", "8+"] },
-    { id: "stress", text: "How would you rate your typical stress level?", type: "single", options: ["Low", "Moderate", "High"] },
-    { id: "sleep", text: "How many hours of sleep do you get on average per night?", type: "single", options: ["Less than 6", "6–7", "7–8", "More than 8"] },
-    { id: "activity", text: "How often do you exercise?", type: "single", options: ["Daily", "3–4 times/week", "1–2 times/week", "Rarely"] },
-    { id: "styling", text: "What is your typical hair styling routine?", type: "single", options: ["Heat styling", "Chemical treatments", "Protective styles", "Gentle / natural"] },
-    { id: "goal", text: "What is your main goal for your hair?", type: "single", options: ["Faster growth", "Thicker hair", "Shinier hair", "Reduce shedding"] },
-    { id: "supplements", text: "Are you currently taking any vitamins, minerals, or other supplements? If yes, list them.", type: "text" },
-  ] as { id: string; text: string; type: "single" | "text"; options?: string[] }[];
+  // Assessment questions are defined alongside the plan engine
+  const questions = QUESTIONS;
 
   const total = questions.length;
   const [showAssessment, setShowAssessment] = useState(false);
@@ -237,33 +208,6 @@ export default function Home() {
     return null;
   }, [step]);
 
-  const generateInsight = (ans: Record<string, any>): string => {
-    const stress = ans["stress"];
-    const diet = ans["diet"];
-    const iron = ans["iron_foods"];
-    const omega = ans["omega3_foods"];
-    const water = ans["water"];
-    const protein = ans["protein_intake"];
-    const sleep = ans["sleep"];
-
-    if (stress === "High") {
-      return "Your top lever: reduce systemic stress. Pair a balanced B‑complex in the morning with magnesium glycinate at night, aim for 7–8 hours sleep, and build a simple wind‑down. Lower cortisol helps prolong the growth (anagen) phase and reduce shedding.";
-    }
-    if ((diet === "Vegan" || diet === "Vegetarian") && (iron === "Rarely" || iron === "1–2 times/week")) {
-      return "Prioritize iron and B12 status. With a plant‑forward diet and low iron intake, ask your clinician about checking ferritin and consider gentle iron paired with vitamin C. Addressing this often reduces diffuse shedding.";
-    }
-    if (omega === "Rarely" || omega === "1–2 times/week") {
-      return "Increase omega‑3 intake. Add 2–3 servings of fatty fish per week or consider algae/fish oil (EPA/DHA). Better omega status supports follicle signaling and a calmer scalp.";
-    }
-    if (water === "1–2") {
-      return "Hydration first: work toward 6–8 glasses of water daily. Hydration and electrolytes support nutrient delivery to follicles and reduce brittleness.";
-    }
-    if (protein === "1–2 times/week" || protein === "Rarely") {
-      return "Raise daily protein toward ~0.8–1.0 g/kg, distributed across meals. Adequate protein underpins keratin synthesis and can improve thickness over time.";
-    }
-    return "Solid foundation—focus on consistency. Keep protein targets, include vitamin D3+K2, zinc, and biotin‑rich foods, and pair a proven topical for best regrowth odds.";
-  };
-
   const handleFinish = async () => {
     const text = generateInsight(answers);
     setInsight(text);
@@ -271,7 +215,6 @@ export default function Home() {
     try {
       if (typeof window !== "undefined") {
         localStorage.setItem("hair_answers", JSON.stringify(answers));
-        localStorage.setItem("hair_insight", text);
       }
       const resp = await fetch("/api/answers/save", {
         method: "POST",
@@ -331,7 +274,7 @@ export default function Home() {
           "Content-Type": "application/json",
           ...(sessionId ? { "x-session-id": sessionId } : {}),
         } as any,
-        body: JSON.stringify({ email, consent: true, source: "insight", answers, insight }),
+        body: JSON.stringify({ email, consent: true, source: "insight", answers }),
       });
       const data = await resp.json();
       if (data?.ok) {
@@ -376,7 +319,7 @@ export default function Home() {
           "Content-Type": "application/json",
           ...(sessionId ? { "x-session-id": sessionId } : {}),
         } as any,
-        body: JSON.stringify({ insight, email: emailToUse }),
+        body: JSON.stringify({ email: emailToUse }),
       });
       const data = await resp.json().catch(() => null);
       await postLog("checkout_create_response", { ok: !!data?.ok, hasUrl: !!data?.url });
@@ -396,12 +339,14 @@ export default function Home() {
       if (plData?.ok && plData?.url) {
         let redirectUrl: string = plData.url as string;
 
-        // Optionally pass a prefilled email if we have one.
+        // Pass a prefilled email and our session id (client_reference_id) so the
+        // webhook can match the payment to the saved answers.
+        const params = new URLSearchParams();
         const email = (leadEmail || "").trim();
-        if (email && /^\S+@\S+\.\S+$/.test(email)) {
-          const sep = redirectUrl.includes("?") ? "&" : "?";
-          redirectUrl = `${redirectUrl}${sep}prefilled_email=${encodeURIComponent(email)}`;
-        }
+        if (email && /^\S+@\S+\.\S+$/.test(email)) params.set("prefilled_email", email);
+        if (sessionId) params.set("client_reference_id", sessionId);
+        const qs = params.toString();
+        if (qs) redirectUrl = `${redirectUrl}${redirectUrl.includes("?") ? "&" : "?"}${qs}`;
 
         if (typeof window !== "undefined") {
           await postLog("payment_link_redirect", { to: "payment_link_url" });
@@ -449,23 +394,6 @@ export default function Home() {
         {/* Fixed canonical URL pointing to production domain */}
         <link rel="canonical" href={`${PRODUCTION_DOMAIN}/`} />
         
-        {/* GA4 Tracking Script */}
-        <script
-          async
-          src={`https://www.googletagmanager.com/gtag/js?id=${process.env.NEXT_PUBLIC_GA_MEASUREMENT_ID || 'G-XXXXXXXXXX'}`}
-        />
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `
-              window.dataLayer = window.dataLayer || [];
-              function gtag(){dataLayer.push(arguments);}
-              gtag('js', new Date());
-              gtag('config', '${process.env.NEXT_PUBLIC_GA_MEASUREMENT_ID || 'G-XXXXXXXXXX'}', {
-                page_path: window.location.pathname,
-              });
-            `,
-          }}
-        />
       </Head>
 
       <div className="bg-background min-h-screen flex flex-col">
@@ -1082,75 +1010,16 @@ export default function Home() {
           )}
         </AnimatePresence>
 
-        {/* Footer */}
-        <footer className="border-t">
-          <div className="mx-auto max-w-7xl px-4 py-10 text-sm text-muted-foreground">
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-              <p>© 2025 Custom Hair Plan by Agile Rant. All rights reserved.</p>
-              <div className="flex gap-4">
-                <Dialog>
-                  <DialogTrigger asChild>
-                    <button className="hover:text-primary">Privacy</button>
-                  </DialogTrigger>
-                  <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
-                    <DialogHeader>
-                      <DialogTitle>Privacy Policy</DialogTitle>
-                      <DialogDescription>How we collect, use, and protect your information.</DialogDescription>
-                    </DialogHeader>
-                    <div className="space-y-4 text-sm text-muted-foreground">
-                      <p>Custom Hair Plan by Agile Rant ("we", "us") respects your privacy. This policy explains what we collect when you use our site, why we collect it, and how we handle it.</p>
-                      <p><span className="font-medium text-foreground">Information we collect:</span> assessment answers, email address, technical data (like IP address and device info), and payment confirmations from our provider (Stripe). We do not store full card numbers.</p>
-                      <p><span className="font-medium text-foreground">How we use it:</span> to provide your insight and full plan, process payments, send emails you request (like plan delivery and receipts), improve the service, and keep the platform secure.</p>
-                      <p><span className="font-medium text-foreground">Sharing:</span> we share data with processors we use to operate the service (e.g., hosting, email, analytics, payments). We don't sell your personal information.</p>
-                      <p><span className="font-medium text-foreground">Retention:</span> we keep data as long as needed to provide the service and for legitimate business or legal reasons, then delete or anonymize it.</p>
-                      <p><span className="font-medium text-foreground">Your choices:</span> you can request access or deletion of your data. You can unsubscribe from emails at any time via the link provided.</p>
-                      <p><span className="font-medium text-foreground">Security:</span> we use reasonable technical and organizational measures to protect your data. No method of transmission or storage is 100% secure.</p>
-                      <p><span className="font-medium text-foreground">Children:</span> the service isn't intended for individuals under 18.</p>
-                      <p><span className="font-medium text-foreground">Contact:</span> use the Contact link in the footer or email ar@agilerant.info.</p>
-                      <p className="text-xs">Effective: {new Date().toISOString().slice(0, 10)}</p>
-                    </div>
-                  </DialogContent>
-                </Dialog>
-
-                <Dialog>
-                  <DialogTrigger asChild>
-                    <button className="hover:text-primary">Terms</button>
-                  </DialogTrigger>
-                  <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
-                    <DialogHeader>
-                      <DialogTitle>Terms of Service</DialogTitle>
-                      <DialogDescription>Your agreement to use our service.</DialogDescription>
-                    </DialogHeader>
-                    <div className="space-y-4 text-sm text-muted-foreground">
-                      <p>By using Custom Hair Plan by Agile Rant ("Service"), you agree to these Terms. If you don't agree, please don't use the Service.</p>
-                      <p><span className="font-medium text-foreground">Use of Service:</span> You may use the Service for personal, non-commercial purposes and must comply with applicable laws.</p>
-                      <p><span className="font-medium text-foreground">No medical advice:</span> Content is for educational purposes only and does not constitute medical advice. Consult your clinician before making changes.</p>
-                      <p><span className="font-medium text-foreground">Payments:</span> Payments are processed by Stripe. Access to the full plan is delivered upon successful payment. Taxes may apply.</p>
-                      <p><span className="font-medium text-foreground">Accounts and communications:</span> You agree to provide accurate information and consent to receive emails related to plan delivery and important updates. You can unsubscribe from marketing at any time.</p>
-                      <p><span className="font-medium text-foreground">Intellectual property:</span> The Service and content are owned by Agile Rant or its licensors. You may not copy, modify, or resell without permission.</p>
-                      <p><span className="font-medium text-foreground">Prohibited conduct:</span> Don't misuse the Service, attempt to access others' data, or interfere with operation or security.</p>
-                      <p><span className="font-medium text-foreground">Disclaimers:</span> The Service is provided "as is" without warranties. We do not guarantee outcomes, results, or uninterrupted availability.</p>
-                      <p><span className="font-medium text-foreground">Limitation of liability:</span> To the fullest extent permitted by law, Agile Rant and its affiliates are not liable for indirect, incidental, or consequential damages.</p>
-                      <p><span className="font-medium text-foreground">Governing law:</span> These Terms are governed by the laws of the jurisdiction where Agile Rant operates, without regard to conflict of law principles.</p>
-                      <p><span className="font-medium text-foreground">Changes:</span> We may update these Terms. Material changes will be indicated by updating the Effective date.</p>
-                      <p><span className="font-medium text-foreground">Contact:</span> use the Contact link in the footer or email ar@agilerant.info.</p>
-                      <p className="text-xs">Effective: {new Date().toISOString().slice(0, 10)}</p>
-                    </div>
-                  </DialogContent>
-                </Dialog>
-
-                <HelpLink
-                  page="Home"
-                  sessionId={sessionId ?? undefined}
-                  email={(leadEmail || (answers as any)?.email) || undefined}
-                  endpoint="/api/contact"
-                  label="Contact"
-                  title="Contact us"
-                />
-              </div>
-            </div>
-          </div>
-        </footer>
+        <SiteFooter
+          help={{
+            page: "Home",
+            sessionId: sessionId ?? undefined,
+            email: (leadEmail || (answers as any)?.email) || undefined,
+            endpoint: "/api/contact",
+            label: "Contact",
+            title: "Contact us",
+          }}
+        />
       </div>
     </>
   );

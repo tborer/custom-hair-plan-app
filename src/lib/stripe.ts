@@ -8,11 +8,22 @@ import type { NextApiRequest } from "next";
  * - Live: uses STRIPE_SECRET_KEY
  * Returns null if no appropriate key is configured so routes can gracefully fallback.
  */
+export function getStripeMode(): "live" | "test" {
+  return (process.env.STRIPE_MODE || "test").toLowerCase() === "live" ? "live" : "test";
+}
+
+/** Webhook signing secret for the active mode (STRIPE_WEBHOOK_SECRET / STRIPE_TEST_WEBHOOK_SECRET). */
+export function getWebhookSecret(): string | null {
+  return (
+    (getStripeMode() === "live" ? process.env.STRIPE_WEBHOOK_SECRET : process.env.STRIPE_TEST_WEBHOOK_SECRET) || null
+  );
+}
+
 let stripeSingleton: Stripe | null = null;
 let stripeSingletonKey: string | null = null;
 
 export function getStripe(): Stripe | null {
-  const mode = (process.env.STRIPE_MODE || "test").toLowerCase() === "live" ? "live" : "test";
+  const mode = getStripeMode();
   const key =
     mode === "live"
       ? process.env.STRIPE_SECRET_KEY
@@ -57,7 +68,7 @@ export function getSiteUrl(req?: NextApiRequest): string {
  * - Live: STRIPE_PRICE_ID
  */
 export function getPriceId(): string | null {
-  const mode = (process.env.STRIPE_MODE || "test").toLowerCase() === "live" ? "live" : "test";
+  const mode = getStripeMode();
   const price = mode === "live" ? process.env.STRIPE_PRICE_ID : process.env.STRIPE_TEST_PRICE_ID;
   if (!price) {
     if (process.env.NODE_ENV !== "production") {

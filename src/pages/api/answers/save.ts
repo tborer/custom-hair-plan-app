@@ -1,5 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { saveAnswers } from "@/lib/db";
+import { enforceIpRateLimit } from "@/lib/http";
+import { sanitizeAnswers } from "@/lib/plan";
 
 type SavePayload = {
   answers?: Record<string, any>;
@@ -21,8 +23,13 @@ export default async function handler(
     return res.status(405).json({ ok: false, message: "Method Not Allowed" });
   }
 
+  if (!(await enforceIpRateLimit(req, res, "answers_save", { limit: 20, windowSec: 3600 }))) return;
+
   try {
-    const { answers, sessionId: incoming, email, source } = (req.body ?? {}) as SavePayload;
+    const { answers: rawAnswers, sessionId: rawIncoming, source } = (req.body ?? {}) as SavePayload;
+    const answers = sanitizeAnswers(rawAnswers);
+    const incoming = typeof rawIncoming === "string" && /^[A-Za-z0-9_-]{8,100}$/.test(rawIncoming) ? rawIncoming : undefined;
+    const email = answers.email;
 
     const ip =
       (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() ||
@@ -41,7 +48,7 @@ export default async function handler(
       ua: Boolean(ua),
     }));
 
-    if (!answers || typeof answers !== "object") {
+    if (!Object.keys(answers).length) {
       console.warn("[answers/save] validation", JSON.stringify({ hasAnswers: false }));
       return res.status(400).json({ ok: false, message: "Answers are required" });
     }
@@ -50,7 +57,7 @@ export default async function handler(
       answers,
       sessionId: incoming,
       email,
-      source,
+      source: typeof source === "string" ? source.slice(0, 50) : undefined,
     });
     console.log("[answers/save] success", JSON.stringify({ sessionId: result.sessionId }));
     return res.status(200).json({ ok: true, sessionId: result.sessionId });

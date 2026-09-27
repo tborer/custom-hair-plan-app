@@ -1,13 +1,16 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { saveLead } from "@/lib/db";
 import { sendPlanPreview } from "@/lib/email";
+import { enforceIpRateLimit } from "@/lib/http";
+import { isValidEmail } from "@/lib/html";
+import { generateInsight, sanitizeAnswers } from "@/lib/plan";
+import { rateLimit } from "@/lib/rateLimit";
 
 type LeadPayload = {
   email?: string;
   consent?: boolean;
   answers?: Record<string, any>;
   source?: string;
-  insight?: string;
 };
 
 type LeadResponse =
@@ -22,61 +25,44 @@ export default async function handler(
     res.setHeader("Allow", "POST");
     return res.status(405).json({ ok: false, message: "Method Not Allowed" });
   }
+  if (!(await enforceIpRateLimit(req, res, "lead", { limit: 5, windowSec: 3600 }))) return;
 
   try {
-    const { email, consent, answers, source, insight } = (req.body ?? {}) as LeadPayload;
+    const { email, consent, answers: rawAnswers, source } = (req.body ?? {}) as LeadPayload;
+    const rawSessionId = String(req.headers["x-session-id"] || "");
+    const incomingSession = /^[A-Za-z0-9_-]{8,100}$/.test(rawSessionId) ? rawSessionId : undefined;
 
-    const ip =
-      (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() ||
-      (req.socket && req.socket.remoteAddress) ||
-      undefined;
-    const ua = req.headers["user-agent"] || undefined;
-    const xSessionId = (req.headers["x-session-id"] as string) || undefined;
-
-    console.log("[lead] start", JSON.stringify({
-      hasEmail: typeof email === "string",
-      consentType: typeof consent,
-      hasAnswers: !!answers,
-      source: source || null,
-      hasInsight: typeof insight === "string" && insight.length > 0,
-      hasXSessionId: !!xSessionId,
-      ip: Boolean(ip),
-      ua: Boolean(ua),
-    }));
-
-    if (!email || typeof email !== "string") {
-      console.warn("[lead] validation", JSON.stringify({ emailPresent: false }));
-      return res.status(400).json({ ok: false, message: "Email is required" });
+    if (!isValidEmail(email)) {
+      return res.status(400).json({ ok: false, message: "A valid email is required" });
     }
-    if (typeof consent !== "boolean") {
-      console.warn("[lead] validation", JSON.stringify({ consentType: typeof consent }));
+    if (consent !== true) {
       return res.status(400).json({ ok: false, message: "Consent is required" });
     }
+    const to = email.trim();
 
-    const incomingSession = (req.headers["x-session-id"] as string) || undefined;
+    const answers = sanitizeAnswers(rawAnswers);
     const result = await saveLead({
-      email,
+      email: to,
       consent,
-      answers,
+      answers: Object.keys(answers).length ? answers : undefined,
       sessionId: incomingSession,
-      source,
+      source: typeof source === "string" ? source.slice(0, 50) : undefined,
     });
-    console.log("[lead] db_saved", JSON.stringify({ sessionId: result.sessionId }));
+    console.log("[lead] db_saved", JSON.stringify({ sessionId: result.sessionId, saved: result.saved }));
 
-    // Attempt to email plan preview (no-op if RESEND is not configured)
-    const emailResp = await sendPlanPreview({
-      to: email,
-      insight,
-      sessionId: result.sessionId,
-    });
-    console.log("[lead] email_attempted", JSON.stringify({ sent: !!emailResp?.sent }));
+    // Cap preview emails per recipient so this endpoint can't be used to spam an address.
+    const perRecipient = await rateLimit(`lead_to:${to.toLowerCase()}`, { limit: 3, windowSec: 86400 });
+    if (perRecipient.allowed) {
+      // The insight is recomputed from validated answers - never taken from the request.
+      const emailResp = await sendPlanPreview({ to, insight: generateInsight(answers) });
+      console.log("[lead] email_attempted", JSON.stringify({ sent: !!emailResp?.sent, suppressed: !!emailResp?.suppressed }));
+    } else {
+      console.warn("[lead] preview email skipped - per-recipient limit reached");
+    }
 
     return res.status(200).json({ ok: true, sessionId: result.sessionId });
   } catch (err: any) {
-    console.error("[lead] error", {
-      message: err?.message || String(err),
-      name: err?.name,
-    });
+    console.error("[lead] error", { message: err?.message || String(err), name: err?.name });
     return res.status(500).json({ ok: false, message: "Internal Server Error" });
   }
 }
