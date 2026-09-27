@@ -162,8 +162,8 @@ land on the verified plan page.
 | `RESEND_FROM` | From address for Resend |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` | SMTP delivery via Nodemailer, used for the contact form and waitlist signups too |
 | `UNSUBSCRIBE_SECRET` | Random string used to sign unsubscribe links (**required in production**; without it emails fall back to a mailto unsubscribe) |
-| `SUPPORT_EMAIL` | Inbox that receives help, contact, and waitlist notifications (default `ar@agilerant.info`) |
-| `NEXT_PUBLIC_SUPPORT_EMAIL` | Support address shown to users in the footer, policies, and emails |
+| `NEXT_PUBLIC_SUPPORT_EMAIL` | Optional. Support address shown to users and used as Reply-To. Defaults to the address in `SMTP_FROM`, then `SMTP_USER` |
+| `SUPPORT_EMAIL` | Optional. Inbox for help, contact, and waitlist notifications if different from the above |
 
 If neither `RESEND_FROM` nor `SMTP_FROM` is set, mail is sent from
 `noreply@<NEXT_PUBLIC_SITE_URL host>` — verify that domain with your provider.
@@ -176,7 +176,10 @@ If neither `RESEND_FROM` nor `SMTP_FROM` is set, mail is sent from
 
 ### Database
 
-`@vercel/postgres` reads the standard `POSTGRES_*` connection variables. Without
+Vercel no longer offers its own Postgres; add **Neon** from the Vercel Marketplace
+(Storage → Create Database → Neon, free plan available on Hobby) and connect it
+to this project. The app reads `POSTGRES_URL`, or `DATABASE_URL` if that is what
+the integration sets. Without
 them, writes log a warning and return `saved: false` rather than failing the
 request. **A database is required in production**: it stores the answers the
 webhook uses to build the emailed plan, guarantees the plan email is sent once,
@@ -232,8 +235,8 @@ Deploys to Vercel as-is; `vercel.json` sets the install command to
 `pnpm install --no-frozen-lockfile`. Before launch:
 
 1. Connect Vercel Postgres.
-2. Set `NEXT_PUBLIC_SITE_URL`, `NEXT_PUBLIC_SUPPORT_EMAIL`, `SUPPORT_EMAIL`, and
-   `UNSUBSCRIBE_SECRET`.
+2. Set `NEXT_PUBLIC_SITE_URL` and `UNSUBSCRIBE_SECRET` (the support address
+   defaults to your SMTP sender).
 3. Configure email (Resend or SMTP) with a verified sending domain.
 4. Configure Stripe keys, price ID, and the webhook endpoint + secret for the
    active `STRIPE_MODE` (see above).

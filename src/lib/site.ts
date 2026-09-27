@@ -8,6 +8,7 @@ export const SITE_NAME = "Custom Hair Plan";
 // Bump this whenever the Privacy Policy or Terms change materially.
 export const POLICY_EFFECTIVE_DATE = "2026-09-27";
 
+// Resolved in next.config.mjs from NEXT_PUBLIC_SUPPORT_EMAIL, else SMTP_FROM / SMTP_USER.
 export const SUPPORT_EMAIL = process.env.NEXT_PUBLIC_SUPPORT_EMAIL || "ar@agilerant.info";
 
 /**

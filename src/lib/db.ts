@@ -3,7 +3,13 @@ import { randomUUID } from "crypto";
 
 let schemaEnsured = false;
 
-/** True when Vercel Postgres connection env vars are present. */
+// @vercel/postgres reads POSTGRES_URL; Neon's Vercel integration may expose the
+// same pooled connection string as DATABASE_URL instead.
+if (!process.env.POSTGRES_URL && process.env.DATABASE_URL) {
+  process.env.POSTGRES_URL = process.env.DATABASE_URL;
+}
+
+/** True when a Postgres connection string is configured (POSTGRES_URL or DATABASE_URL). */
 export function isDbConfigured(): boolean {
   return Boolean(process.env.POSTGRES_URL);
 }

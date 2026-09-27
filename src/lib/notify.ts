@@ -2,10 +2,11 @@ import type { NextApiRequest } from "next";
 import { sendEmailRaw } from "@/lib/email";
 import { escapeHtml, isValidEmail } from "@/lib/html";
 import { getClientIp } from "@/lib/http";
+import { SUPPORT_EMAIL } from "@/lib/site";
 
 /** Where internal notifications (help, contact, waitlist) are delivered. */
 export function getSupportInbox(): string {
-  return process.env.SUPPORT_EMAIL || process.env.NEXT_PUBLIC_SUPPORT_EMAIL || "ar@agilerant.info";
+  return process.env.SUPPORT_EMAIL || SUPPORT_EMAIL;
 }
 
 /**
