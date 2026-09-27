@@ -1,4 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from "next";
+import { enforceIpRateLimit } from "@/lib/http";
 
 type LogLevel = "info" | "warn" | "error" | "debug";
 type LogBody = {
@@ -47,14 +48,17 @@ function sanitizeContext(input: any, depth = 0): any {
   return input;
 }
 
-export default function handler(req: NextApiRequest, res: NextApiResponse) {
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "POST") {
     return res.status(405).json({ ok: false, message: "Method not allowed" });
   }
+  if (!(await enforceIpRateLimit(req, res, "log", { limit: 300, windowSec: 600, memoryOnly: true }))) return;
 
   const body = (req.body || {}) as LogBody;
-  const level: LogLevel = (body.level as LogLevel) || "info";
-  const event = body.event || "unknown_event";
+  const level: LogLevel = ["info", "warn", "error", "debug"].includes(body.level as string)
+    ? (body.level as LogLevel)
+    : "info";
+  const event = String(body.event || "unknown_event").slice(0, 100);
 
   const ip =
     (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() ||

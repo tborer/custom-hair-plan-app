@@ -1,110 +1,54 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import { getStripe } from "@/lib/stripe";
-import { sendFullPlan } from "@/lib/email";
-import { saveLead, savePlanLog } from "@/lib/db";
-import { buildFullPlanHtml } from "@/lib/plan";
+import { getStripe, getStripeMode } from "@/lib/stripe";
+import { fulfillCheckoutSession } from "@/lib/fulfillment";
+import { enforceIpRateLimit } from "@/lib/http";
 
+/**
+ * Verifies a Stripe Checkout Session server-side and returns the buyer's plan.
+ * This is the only way the success page obtains plan content, so the plan is
+ * never shown without a paid session. Also triggers the (idempotent) plan email
+ * in case the webhook hasn't delivered it yet.
+ *
+ * POST { session_id: string, answers?: Record<string,string> }
+ */
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  if (req.method !== "GET" && req.method !== "POST") {
-    return res.status(405).json({ ok: false, message: "Method not allowed" });
+  if (req.method !== "POST") {
+    res.setHeader("Allow", "POST");
+    return res.status(405).json({ ok: false, message: "Method Not Allowed" });
   }
-
-  const enabled = (process.env.STRIPE_CONFIRM_ENABLED || "false").toLowerCase() === "true";
-  if (!enabled) {
-    console.log("[stripe/confirm] disabled");
-    return res.status(200).json({ ok: false, message: "Confirm disabled" });
-  }
-
-  const stripeMode = (process.env.STRIPE_MODE || "test").toLowerCase() === "live" ? "live" : "test";
-  const hasKey = stripeMode === "live" ? !!process.env.STRIPE_SECRET_KEY : !!process.env.STRIPE_TEST_SECRET_KEY;
-  console.log("[stripe/confirm] config", JSON.stringify({ enabled, stripeMode, hasKey }));
+  if (!(await enforceIpRateLimit(req, res, "stripe_confirm", { limit: 30, windowSec: 600 }))) return;
 
   const stripe = getStripe();
   if (!stripe) {
-    console.warn("[stripe/confirm] no_stripe_config", JSON.stringify({ stripeMode, hasKey }));
-    return res.status(400).json({ ok: false, message: "Stripe is not configured" });
+    console.error("[stripe/confirm] Stripe not configured", { mode: getStripeMode() });
+    return res.status(503).json({ ok: false, message: "Payments are not configured" });
   }
 
-  const sessionId =
-    (req.method === "GET" ? (req.query.session_id as string) : (req.body?.session_id as string)) || "";
-
-  console.log("[stripe/confirm] start", JSON.stringify({ hasSessionId: !!sessionId, stripeMode }));
-  if (!sessionId) {
-    return res.status(400).json({ ok: false, message: "Missing session_id" });
+  const sessionId = String(req.body?.session_id ?? "");
+  if (!/^cs_(test|live)_[A-Za-z0-9]{10,}$/.test(sessionId)) {
+    return res.status(400).json({ ok: false, message: "Invalid or missing session_id" });
   }
 
   try {
     const session = await stripe.checkout.sessions.retrieve(sessionId);
-    if (!session) {
-      return res.status(404).json({ ok: false, message: "Session not found" });
+    const result = await fulfillCheckoutSession(session, { source: "confirm", clientAnswers: req.body?.answers });
+
+    if (!result.ok) {
+      console.log("[stripe/confirm] not paid", JSON.stringify({ status: session.status, payment_status: session.payment_status }));
+      return res.status(402).json({ ok: false, message: "Payment not completed" });
     }
 
-    if (session.payment_status !== "paid") {
-      return res.status(400).json({ ok: false, message: "Payment not completed" });
-    }
-
-    const email =
-      (session.customer_details && session.customer_details.email) ||
-      (session.customer_email as string) ||
-      "";
-
-    const appSessionId = (session.metadata && (session.metadata as any).app_session_id) || null;
-    const insight = (session.metadata && (session.metadata as any).insight) || null;
-
-    // Compose the full plan HTML using available context.
-    const planHtml = buildFullPlanHtml({ insight });
-
-    // Save lead record (graceful fallback if DB not configured)
-    if (email) {
-      await saveLead({
-        email,
-        consent: true,
-        answers: undefined,
-        sessionId: appSessionId || undefined,
-        source: "stripe_paid",
-      });
-      // Log the exact plan that was unlocked so it can be regenerated/resent later
-      try {
-        await savePlanLog({
-          email,
-          planHtml,
-          sessionId: appSessionId || undefined,
-          source: "stripe_confirm",
-        });
-      } catch (e) {
-        console.warn("[stripe/confirm] savePlanLog failed", e);
-      }
-    }
-
-    // Email the full plan (graceful no-op if RESEND not configured)
-    let sent = false;
-    if (email) {
-      const result = await sendFullPlan({
-        to: email,
-        planHtml,
-        sessionId: appSessionId || undefined,
-      });
-      sent = result.sent;
-    }
-
-    console.log("[stripe/confirm] success", JSON.stringify({
-      stripeSessionId: sessionId,
-      appSessionId,
-      emailed: sent
-    }));
     return res.status(200).json({
       ok: true,
-      emailed: sent,
-      sessionId: appSessionId,
-      email: email || null,
+      plan: result.plan,
+      email: result.email,
+      emailed: result.emailed || result.alreadyEmailed,
     });
   } catch (err: any) {
-    console.error("[stripe/confirm] error", {
-      message: err?.message,
-      type: err?.type,
-      code: err?.code,
-      stripeMode: (process.env.STRIPE_MODE || "test").toLowerCase() === "live" ? "live" : "test",
-    });
-    return res.status(500).json({ ok: false, message: err?.message || "Failed to confirm session" });
+    if (err?.code === "resource_missing") {
+      return res.status(404).json({ ok: false, message: "Checkout session not found" });
+    }
+    console.error("[stripe/confirm] error", { message: err?.message, type: err?.type, code: err?.code });
+    return res.status(500).json({ ok: false, message: "Could not verify payment. Please try again." });
   }
 }
